@@ -1,14 +1,12 @@
 const { app, BrowserWindow, Menu } = require('electron');
 const path = require('path'), fs = require('fs');
 
-// Data folder: datapath.txt (next to the exe) > exe folder if not on C: > D:\ > exe folder.
+// Data folder: datapath.txt (next to the exe, optional override) > the SAME folder as the exe.
+// Nothing is moved to C:\ or D:\ automatically - data always stays beside the exe.
 const exeDir = process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.execPath);
 function pickDataDir() {
   try { const t = fs.readFileSync(path.join(exeDir, 'datapath.txt'), 'utf8').trim(); if (t) return t; } catch (e) {}
-  const sys = (process.env.SystemDrive || 'C:').toUpperCase();
-  if (path.parse(exeDir).root.slice(0, 2).toUpperCase() !== sys) return path.join(exeDir, 'VB_Civil_Data');
-  if (fs.existsSync('D:\\')) return 'D:\\VB_Civil_Data';
-  return path.join(exeDir, 'VB_Civil_Data');
+  return exeDir;
 }
 const dataDir = pickDataDir();
 try { fs.mkdirSync(dataDir, { recursive: true }); } catch (e) {}
