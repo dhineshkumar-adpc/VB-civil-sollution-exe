@@ -7,12 +7,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 18 }
+        with: { node-version: 20 }
       - name: Bundle NetBird installers (Win7 = v0.25.3, Win10/11 = latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p build-res/netbird
           curl -fL -o build-res/netbird/netbird-win7.exe https://github.com/netbirdio/netbird/releases/download/v0.25.3/netbird_installer_0.25.3_windows_amd64.exe
-          TAG=$(curl -s https://api.github.com/repos/netbirdio/netbird/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4)
+          TAG=$(gh api repos/netbirdio/netbird/releases/latest --jq .tag_name)
+          echo "Latest NetBird: $TAG"
           curl -fL -o build-res/netbird/netbird-latest.exe "https://github.com/netbirdio/netbird/releases/download/$TAG/netbird_installer_${TAG#v}_windows_amd64.exe"
       - run: npm install
       - name: Build (signed if CSC_LINK / CSC_KEY_PASSWORD secrets exist)
