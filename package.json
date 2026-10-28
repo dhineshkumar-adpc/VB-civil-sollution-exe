@@ -1,0 +1,17 @@
+{
+  "name": "vb-civil-solution",
+  "version": "1.0.0",
+  "description": "VB Civil Solution - Rental & Billing Manager",
+  "main": "main.js",
+  "author": "Dhineshkumar Adpc Murugan Trader",
+  "scripts": { "start": "electron .", "dist": "electron-builder --win portable --x64" },
+  "devDependencies": { "electron": "22.3.27", "electron-builder": "24.13.3" },
+  "build": {
+    "appId": "shop.adpc.vbcivil",
+    "productName": "VB Civil Solution",
+    "files": ["main.js", "index.html"],
+    "extraResources": [{ "from": "build-res/netbird", "to": "netbird" }],
+    "win": { "target": ["portable"], "requestedExecutionLevel": "asInvoker" },
+    "portable": { "artifactName": "VB-Civil-Solution.exe" }
+  }
+}
