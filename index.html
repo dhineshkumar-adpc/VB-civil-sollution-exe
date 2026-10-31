@@ -3489,8 +3489,7 @@ function downloadSiteFullBill(){
   doc.setTextColor(220,38,38); doc.text('Balance Due                  : Rs '+fmt(t.balanceDue),14,y); y+=12;
   doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(120,120,120);
   doc.text('Thank you for choosing '+COMPANY+'.',14,y);
-  doc.save(site.site_no+'_FullStatement.pdf');
-  toast('✅ Full site bill downloaded!');
+  if(__pdfOut(doc,site.site_no+'_FullStatement.pdf')){ toast('✅ Full site bill downloaded!'); }
 }
 // ── SITE LEDGER — bill listing ONLY missing / lost items for this site ──
 function downloadSiteMissingBill(){
@@ -3540,8 +3539,7 @@ function downloadSiteMissingBill(){
   doc.text('Total Missing / Lost Amount: Rs '+fmt(Math.round(totalAmt)),14,y); y+=12;
   doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(120,120,120);
   doc.text('Thank you for choosing '+COMPANY+'.',14,y);
-  doc.save(site.site_no+'_MissingItemsBill.pdf');
-  toast('✅ Missing items bill downloaded!');
+  if(__pdfOut(doc,site.site_no+'_MissingItemsBill.pdf')){ toast('✅ Missing items bill downloaded!'); }
 }
 function submitSiteOut(){
   var date=val('so-date')||td();
@@ -3843,8 +3841,7 @@ function dlPDF(){
     }
     y+=16;
     pdfInvoiceFooter(doc, y, ac, '30 நாட்களுக்குள் முழு தொகையும் செலுத்தவும்.', null);
-    doc.save(no+'_'+(b.customer||'').replace(/\s+/g,'_')+'.pdf');
-    toast('✅ PDF saved!');
+    if(__pdfOut(doc,no+'_'+(b.customer||'').replace(/\s+/g,'_')+'.pdf')){ toast('✅ PDF saved!'); }
   }).catch(function(e){
     console.error('PDF generation failed', e);
     toast('⚠ PDF உருவாக்கம் தோல்வி');
@@ -3852,48 +3849,44 @@ function dlPDF(){
 
 }
 
-// ── WHATSAPP ───────────────────────────────────────────────────
+// ── WHATSAPP (opens WhatsApp Desktop directly and shares the bill as a PDF) ──
+function __waPhone(raw){
+  var p=String(raw||'').replace(/\D/g,'');
+  if(p.length===11&&p.charAt(0)==='0') p=p.slice(1);
+  if(p.length===10) p='91'+p;
+  return p;
+}
+// every PDF generator calls this instead of doc.save(): normal = download, share = hand the bytes to WhatsApp
+function __pdfOut(doc,name){
+  if(window.__waCapture){
+    var cb=window.__waCapture; window.__waCapture=null;
+    try{ cb(doc.output('arraybuffer'),name); }catch(e){ console.error(e); toast('⚠ PDF share failed'); }
+    return false;
+  }
+  doc.save(name); return true;
+}
+function __waSend(buf,name,wa){
+  var ipc=null; try{ ipc=require('electron').ipcRenderer; }catch(e){}
+  if(ipc){
+    ipc.invoke('vbcs-wa-share',{name:name,data:new Uint8Array(buf),phone:wa}).then(function(r){
+      if(!r||r.error){ toast('⚠ '+((r&&r.error)||'WhatsApp share failed'),6000); return; }
+      if(r.opened==='desktop') toast(r.copied?'✅ WhatsApp opened - PDF copied. Press Ctrl+V, then Enter':'✅ WhatsApp opened - PDF folder opened, drag the PDF into the chat',7000);
+      else toast('⚠ WhatsApp Desktop not found - opened in browser. PDF saved: '+r.file,8000);
+    }).catch(function(e){ toast('⚠ WhatsApp share failed: '+e.message,6000); });
+  } else {
+    var a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([buf],{type:'application/pdf'})); a.download=name; a.click();
+    window.open('https://wa.me/'+wa,'_blank');
+  }
+}
 function shareWA(){
-  if(curMode==='sitefull'){
-    var site=findSiteById(curSiteId); if(!site)return;
-    var t=computeSiteTotals(site);
-    var ph=(site.phone||'').replace(/\D/g,''), wa=ph.startsWith('91')?ph:'91'+ph;
-    var msg='🏗️ *FULL SITE STATEMENT — '+COMPANY.toUpperCase()+'*\n'+site.site_no+' | '+site.customer+'\n📞 '+site.phone+'\n\n'+
-      '💰 Total Rent: ₹'+Number(t.grandRent).toLocaleString('en-IN')+'\n'+
-      '✅ Paid: ₹'+Number(t.totalPayments).toLocaleString('en-IN')+'\n'+
-      '⚠️ Balance: ₹'+Number(t.balanceDue).toLocaleString('en-IN')+
-      '\n\n🙏 '+COMPANY;
-    window.open('https://wa.me/'+wa+'?text='+encodeURIComponent(msg),'_blank');
-    return;
-  }
-  if(curMode==='salary'){
-    var sl=curBill; if(!sl)return;
-    var msg2='💵 *SALARY SLIP — '+COMPANY.toUpperCase()+'*\n'+sl.slipNo+' | '+sl.monthLabel+'\n'+
-      '👤 '+sl.empName+(sl.phone?' | 📞 '+sl.phone:'')+'\n\n'+
-      'Basic: ₹'+fmt(sl.basic)+'\nAllowances: ₹'+fmt(sl.allowances)+'\nDeductions: ₹'+fmt(sl.deductions)+'\nAdvance Paid: ₹'+fmt(sl.advance)+'\n\n'+
-      '💰 *Net Payable: ₹'+fmt(sl.net)+'*\n'+(sl.balance>0?'⚠️ Balance: ₹'+fmt(sl.balance):'✅ FULLY PAID')+
-      '\n\n🙏 '+COMPANY;
-    var ph2=(sl.phone||'').replace(/\D/g,''), wa2=ph2.startsWith('91')?ph2:'91'+ph2;
-    window.open('https://wa.me/'+wa2+'?text='+encodeURIComponent(msg2),'_blank');
-    return;
-  }
-  if(!curBill)return;
-  var b=curBill, isR=curMode==='return';
-  var ph=(b.phone||'').replace(/\D/g,''), wa=ph.startsWith('91')?ph:'91'+ph;
-  var msg=isR
-    ?'📦 *RETURN RECEIPT — '+COMPANY.toUpperCase()+'*\n'+b.returnBillNo+' | Ref: '+b.originalBillNo+'\n'+
-      '👤 '+b.customer+' | 📞 '+b.phone+'\n\nReturned:\n'+
-      (b.items||[]).map(function(i){return '• '+i.name+': '+i.qty+(i.missing>0?' ⚠ '+i.missing+' missing':'');}).join('\n')+
-      '\n\n⏱ Actual: '+b.actualDays+' days\n'+(Number(b.finalBalance)<=0?'✅ FULLY PAID':'⚠️ Balance: ₹'+Number(b.finalBalance).toLocaleString('en-IN'))+
-      '\n\n🙏 '+COMPANY
-    :'🏗️ *DISPATCH BILL — '+COMPANY.toUpperCase()+'*\n'+b.billNo+' | '+b.date+'\n'+
-      '👤 '+b.customer+' | 📞 '+b.phone+'\n📍 '+(b.address||'—')+'\n\nItems:\n'+
-      (b.items||[]).map(function(i){return '• '+i.name+': '+i.qty+' pcs = ₹'+Number(i.amount).toLocaleString('en-IN');}).join('\n')+
-      '\n\n⏱ '+b.days+' days\n💰 Total: ₹'+Number(b.total).toLocaleString('en-IN')+
-      '\n✅ Advance: ₹'+Number(b.advance).toLocaleString('en-IN')+
-      '\n⚠️ Balance: ₹'+Number(b.balance).toLocaleString('en-IN')+
-      '\n\n🙏 '+COMPANY;
-  window.open('https://wa.me/'+wa+'?text='+encodeURIComponent(msg),'_blank');
+  var raw;
+  if(curMode==='sitefull'){ var site=findSiteById(curSiteId); if(!site) return; raw=site.phone; }
+  else { if(!curBill) return; raw=curBill.phone; }
+  var wa=__waPhone(raw);
+  if(wa.length<11){ toast('⚠ Customer phone number is missing or incorrect'); return; }
+  window.__waCapture=function(buf,name){ __waSend(buf,name,wa); };
+  setTimeout(function(){ window.__waCapture=null; },30000);
+  dlPDF();
 }
 </script>
 <script type="text/vbcs-app">
@@ -4767,8 +4760,7 @@ function dlSalaryPDF(){
   doc.text('Balance: '+(s.balance>0?'Rs '+Number(s.balance).toLocaleString('en-IN'):'FULLY PAID'),14,y); y+=14;
   doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(120,120,120);
   doc.text('This is a computer-generated salary slip from '+COMPANY+'.',14,y);
-  doc.save(s.slipNo+'_'+(s.empName||'').replace(/\s+/g,'_')+'_'+s.month+'.pdf');
-  toast('✅ Salary slip PDF saved!');
+  if(__pdfOut(doc,s.slipNo+'_'+(s.empName||'').replace(/\s+/g,'_')+'_'+s.month+'.pdf')){ toast('✅ Salary slip PDF saved!'); }
 }
 function downloadSalarySlip(id){
   var r=DB.salaries.find(function(x){ return x.id===id; });
@@ -5169,13 +5161,14 @@ function ulXL(input){
         q.on('end',function(){ if(dirty||Number(u.searchParams.get('base'))!==rev){ r.writeHead(409,{'Content-Type':'application/json'}); return r.end(JSON.stringify({rev:rev})); }
           try{ var d=JSON.parse(Buffer.concat(c).toString()); if(!d||!d.invMain||!d.invSub) throw 0; nextRev(); apply(d); bcast(); last=new Date().toLocaleTimeString(); render(); r.writeHead(200,{'Content-Type':'application/json'}); r.end(JSON.stringify({rev:rev})); }catch(x){ r.writeHead(400); r.end('bad'); } }); return; }
       r.writeHead(404); r.end(); });
-    srv.on('error',function(e){ msg='Server error: '+e.message; render(); });
+    srv.keepAliveTimeout=65000; srv.on('error',function(e){ msg='Server error: '+e.message; render(); });
     srv.listen(Number(cfg.port)||8787,'0.0.0.0');
     hb=setInterval(function(){ sse.forEach(function(r){ try{r.write(': ping\n\n');}catch(e){} }); },15000); }
   // ── CLIENT: talks to the host over its NetBird IP (Node http, no CORS) ──
-  function nreq(m,p,body,cb){ var done=false; function fin(e,s,b){ if(!done){ done=true; cb(e,s,b); } }
-    var rq=N.http.request({host:cfg.host,port:Number(cfg.port)||8787,path:p+(p.indexOf('?')<0?'?':'&')+'pin='+encodeURIComponent(cfg.pin),method:m,headers:body?{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)}:{}},function(res){ var c=[]; res.on('data',function(d){c.push(d);}); res.on('end',function(){ fin(null,res.statusCode,Buffer.concat(c).toString()); }); });
-    rq.setTimeout(8000,function(){ rq.destroy(new Error('timeout')); }); rq.on('error',function(e){ fin(e); }); if(body) rq.write(body); rq.end(); }
+  var KA=N?new N.http.Agent({keepAlive:true,maxSockets:4}):undefined;
+  function nreq(m,p,body,cb,_r){ var done=false; function fin(e,s,b){ if(!done){ done=true; cb(e,s,b); } }
+    var rq=N.http.request({host:cfg.host,port:Number(cfg.port)||8787,path:p+(p.indexOf('?')<0?'?':'&')+'pin='+encodeURIComponent(cfg.pin),method:m,agent:KA,headers:body?{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)}:{}},function(res){ var c=[]; res.on('data',function(d){c.push(d);}); res.on('end',function(){ fin(null,res.statusCode,Buffer.concat(c).toString()); }); });
+    rq.setTimeout(8000,function(){ rq.destroy(new Error('timeout')); }); rq.on('error',function(e){ if(!_r&&e&&(e.code==='ECONNRESET'||e.code==='EPIPE')){ done=true; return nreq(m,p,body,cb,1); } fin(e); }); if(body) rq.write(body); rq.end(); }
   function pull(force){ if(cfg.mode!=='client') return; nreq('GET','/state',null,function(e,s,b){
     if(e||s!==200){ online=false; setSync('offline'); return render(); }
     var j; try{ j=JSON.parse(b); }catch(x){ return; } online=true;
@@ -5186,7 +5179,7 @@ function ulXL(input){
     return new Promise(function(ok){ nreq('PUT','/state?base='+myRev,JSON.stringify(window.DB),function(e,s,b){ busy=false;
       if(e||(s!==200&&s!==409)){ dirty=true; online=false; setSync('offline'); render(); setTimeout(flush,5000); return ok(false); }
       if(s===409){ conflict=true; dirty=true; setSync('conflict'); render(); return ok(false); }
-      try{ myRev=JSON.parse(b).rev; }catch(x){} online=true; last=new Date().toLocaleTimeString(); mark(dirty); setSync(dirty?'pending':'live'); render(); if(dirty) setTimeout(flush,800); ok(true); }); }); }
+      try{ myRev=JSON.parse(b).rev; }catch(x){} online=true; last=new Date().toLocaleTimeString(); mark(dirty); setSync(dirty?'pending':'live'); render(); if(dirty) setTimeout(flush,100); ok(true); }); }); }
   function flushNow(){ clearTimeout(timer); if(cfg.mode==='host'&&dirty) hostCommit(); return new Promise(function(res){ var t=0; (function a(){ if(!dirty&&!busy) return res(true); if(++t>60) return res(false); if(!busy) flush(); setTimeout(a,200); })(); }); }
   function stopSSE(){ clearTimeout(sseT); if(sseReq){ try{sseReq.destroy();}catch(e){} sseReq=null; } }
   function startSSE(){ stopSSE(); if(!N||cfg.mode!=='client'||!cfg.live||!cfg.host) return;
@@ -5199,7 +5192,7 @@ function ulXL(input){
     rq.setTimeout(40000,function(){ rq.destroy(); }); rq.on('error',retry); sseReq=rq; }
   function hostCommit(){ dirty=false; mark(false); nextRev(); persist(); bcast(); setSync('live'); render(); }
   function queueSave(){ persistSoon(); if(cfg.mode==='off') return; dirty=true; mark(true); setSync(conflict?'conflict':'pending'); clearTimeout(timer);
-    if(cfg.mode==='host') timer=setTimeout(hostCommit,400); else if(cfg.live) timer=setTimeout(flush,700); }
+    if(cfg.mode==='host') timer=setTimeout(hostCommit,40); else if(cfg.live) timer=setTimeout(flush,60); }
   function resolveConflict(){ if(!conflict) return;
     if(confirm('Another device saved changes while you were working.\n\nOK = Keep MY version (overwrite theirs)\nCancel = Discard mine and load theirs')){
       nreq('GET','/state',null,function(e,s,b){ try{ myRev=JSON.parse(b).rev; }catch(x){ return; } conflict=false; dirty=true; flush(); });
