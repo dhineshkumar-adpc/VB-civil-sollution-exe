@@ -1,5 +1,6 @@
-const { app, BrowserWindow, Menu, dialog, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, shell, ipcMain } = require('electron');
 const path = require('path'), fs = require('fs');
+const { execFile } = require('child_process');
 
 // ── Where things live ────────────────────────────────────────────────────────
 // Settings : %APPDATA%\VB Civil Solution\datapath.txt  (written by the installer,
@@ -54,6 +55,37 @@ function resolveDataDir() {
 
 if (!app.requestSingleInstanceLock()) app.quit();
 let win, dataDir;
+
+// ── WhatsApp share: save the bill PDF, put it on the clipboard, open WhatsApp Desktop on that customer's chat ──
+// WhatsApp has no link that attaches a file by itself, so the last step is Ctrl+V then Enter in the chat.
+function copyFileToClipboard(file) {
+  return new Promise(res => {
+    if (process.platform !== 'win32') return res(false);
+    execFile('powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', 'Set-Clipboard -LiteralPath $env:VBCS_PDF'],
+      { env: Object.assign({}, process.env, { VBCS_PDF: file }), windowsHide: true, timeout: 15000 },
+      err => res(!err));
+  });
+}
+ipcMain.handle('vbcs-wa-share', async (e, req) => {
+  try {
+    const phone = String((req && req.phone) || '').replace(/\D/g, '');
+    if (phone.length < 11 || phone.length > 15) return { error: 'Invalid phone number' };
+    const dir = path.join(dataDir, 'Bills PDF');
+    fs.mkdirSync(dir, { recursive: true });
+    const name = String(req.name || 'bill.pdf').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 120);
+    const file = path.join(dir, /\.pdf$/i.test(name) ? name : name + '.pdf');
+    fs.writeFileSync(file, Buffer.from(req.data));
+    const copied = await copyFileToClipboard(file);
+    let opened = 'web';
+    if (app.getApplicationNameForProtocol('whatsapp://')) {
+      try { await shell.openExternal('whatsapp://send?phone=' + phone); opened = 'desktop'; } catch (x) {}
+    }
+    if (opened === 'web') shell.openExternal('https://wa.me/' + phone);
+    if (!copied) shell.showItemInFolder(file);
+    return { file, copied, opened };
+  } catch (x) { return { error: x.message }; }
+});
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 
 app.whenReady().then(() => {
